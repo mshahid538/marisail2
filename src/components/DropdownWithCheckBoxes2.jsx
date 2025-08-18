@@ -1,226 +1,300 @@
 import { useState, useEffect, useRef } from "react";
-import { Form } from "react-bootstrap";
 import PropTypes from "prop-types";
 import { Loader } from "rsuite";
 
 const DropdownWithCheckBoxes = ({
   defaultUnit,
-  varToDb,
+  varToDb = {},
   heading,
   title,
-  options,
+  mandatory,
+  options = [],
+  // Backwards-compat props (simple API)
+  selected,
+  onChange,
+  // Original API (grouped selections by heading)
   selectedOptions,
   setSelectedOptions,
   onOpen,
-  fetching,
+  fetching = false,
+  open,
+  advert,
+  onAddOption
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(open);
   const [inputText, setInputText] = useState("");
   const [filteredOptions, setFilteredOptions] = useState(options);
-  const dropdownRef = useRef(null); // Ref for the scrollable container
+  const dropdownRef = useRef(null);
   const [offSet, setOffSet] = useState(0);
+  const safeOnOpen = typeof onOpen === "function" ? onOpen : () => {};
 
-  // Toggle dropdown visibility
-  const handleDropdownToggle = () => {
-    setIsOpen((prev) => !prev);
-    if (!isOpen) {
-      console.log("call from dropdowntoggle");
-      onOpen(inputText, offSet); // Call onOpen when the dropdown is opened
-    }
-  };
+  // Determine selected values
+  const selectedValues = Array.isArray(selected)
+    ? selected
+    : (heading &&
+        selectedOptions &&
+        Array.isArray(selectedOptions[heading])
+        ? selectedOptions[heading]
+        : []);
 
+  // Scroll handler
   const handleScroll = () => {
     if (!dropdownRef.current) return;
-
     const { scrollTop, scrollHeight, clientHeight } = dropdownRef.current;
-
-    // Detect if the user has scrolled to the bottom
     if (scrollTop + clientHeight >= scrollHeight) {
       if (offSet <= filteredOptions.length) {
         setOffSet((prev) => prev + 20);
       }
-      // console.log("Scrolled to the end");
     }
   };
 
-  // Handle search input
+  // Search input handler with filtering
   const handleInputChange = (e) => {
     const searchText = e.target.value;
     setOffSet(0);
     setInputText(searchText);
+
+    if (searchText.trim() === "") {
+      setFilteredOptions(options);
+    } else {
+      const lower = searchText.toLowerCase();
+      setFilteredOptions(
+        options.filter((opt) => {
+          const valueKey =
+            heading &&
+            typeof opt === "object" &&
+            opt &&
+            varToDb[heading] &&
+            opt[varToDb[heading]] != null
+              ? opt[varToDb[heading]]
+              : typeof opt === "string"
+              ? opt
+              : (opt && (opt.value ?? opt.label)) || "";
+          return String(valueKey).toLowerCase().includes(lower);
+        })
+      );
+    }
   };
 
-  // Handle checkbox selection
-  const handleOptionChange = (option, e) => {
-    e.stopPropagation(); // Stop event propagation to prevent dropdown from closing
-    setSelectedOptions((prev) => {
-      const currentSelections = prev[heading] || [];
-      const updatedSelections = currentSelections.includes(option)
-        ? currentSelections.filter((item) => item !== option) // Remove if already selected
-        : [...currentSelections, option]; // Add if not selected
+  const handleOptionChange = (value, e) => {
+    e.stopPropagation();
 
-      return {
-        ...prev,
-        [heading]: updatedSelections,
-      };
-    });
+    if (advert) {
+      // Single-select mode
+      if (Array.isArray(selected) && typeof onChange === "function") {
+        // Always replace the entire selection with only the clicked value
+        onChange([value]);
+        return;
+      }
+      if (typeof setSelectedOptions === "function" && heading) {
+        setSelectedOptions((prev) => ({
+          ...(prev || {}),
+          [heading]: [value],
+        }));
+      }
+      return;
+    }
+
+    // Multi-select mode (default)
+    if (Array.isArray(selected) && typeof onChange === "function") {
+      const exists = selected.includes(value);
+      const updated = exists
+        ? selected.filter((v) => v !== value)
+        : [...selected, value];
+      onChange(updated);
+      return;
+    }
+    if (typeof setSelectedOptions === "function" && heading) {
+      setSelectedOptions((prev) => {
+        const currentSelections = (prev && prev[heading]) || [];
+        const updatedSelections = currentSelections.includes(value)
+          ? currentSelections.filter((item) => item !== value)
+          : [...currentSelections, value];
+        return {
+          ...(prev || {}),
+          [heading]: updatedSelections,
+        };
+      });
+    }
   };
-  // console.log(heading);
+
+  const handleAddOption = () => {
+    if (!inputText.trim()) return;
+
+    const newValue = inputText.trim();
+    const newOption = { value: newValue, count: 0 };
+
+    // Prevent duplicates
+    const exists = options.some(
+      (opt) => (typeof opt === "object" ? opt.value : opt) === newValue
+    );
+    if (exists) return;
+
+    // Call parent to update its options state
+    if (typeof onAddOption === "function") {
+      onAddOption(newOption);
+    }
+
+    // Also reflect locally so dropdown updates immediately
+    const updatedOptions = [...options, newOption];
+    setFilteredOptions(updatedOptions);
+
+    // Select only the new option (single-select behavior for advert)
+    if (Array.isArray(selected) && typeof onChange === "function") {
+      onChange([newValue]);
+    } else if (typeof setSelectedOptions === "function" && heading) {
+      setSelectedOptions((prev) => ({
+        ...(prev || {}),
+        [heading]: [newValue],
+      }));
+    }
+
+    // Clear input
+    setInputText("");
+  };
+
 
   useEffect(() => {
     const debounceTimeout = setTimeout(() => {
       if (isOpen) {
-        console.log("call from ");
-        onOpen(inputText, offSet);
+        safeOnOpen(inputText, offSet);
       }
     }, 500);
+    return () => clearTimeout(debounceTimeout);
+  }, [inputText, offSet, selectedOptions, isOpen]);
 
-    return () => clearTimeout(debounceTimeout); // Cleanup on re-renders
-  }, [inputText, offSet, selectedOptions]); // Depend on `inputText` and `onOpen`
-
-  // Update filtered options when the options prop changes
   useEffect(() => {
-    setFilteredOptions(options);
-  }, [options]);
+    if (inputText.trim() === "") {
+      setFilteredOptions(options);
+    }
+  }, [options, inputText]);
+
+  useEffect(() => {
+    setIsOpen(!!open);
+  }, [open]);
+
   return (
-    <div className="custom-dropdown-container">
-      {/* Dropdown Header */}
-      <div
-        className="custom-dropdown-header"
-        onClick={handleDropdownToggle}
+    <div
+      className="dropdown w-full"
+      onMouseEnter={() => setIsOpen(true)}
+      onMouseLeave={() => setIsOpen(false)}
+    >
+      {/* Toggle Button */}
+      <button
+        type="button"
         aria-expanded={isOpen}
-        aria-controls="dropdown-content"
-        style={{ marginBottom: "10px", cursor: "pointer" }}
+        className="w-full flex justify-between items-center py-2 text-[15px] text-gray-900 font-medium transition"
       >
-        {title}
-
-        <span
-          className={`dropdown-icon ${isOpen ? "open" : ""}`}
-          style={{
-            display: "inline-block",
-            transition: "transform 0.3s ease-in-out",
-            transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
-          }}
-        >
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 10 10"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="M1 3 L5 7 L9 3"
-              fill="none"
-              stroke="black"
-              strokeWidth="1.5"
-            />
-          </svg>
+        <span className="truncate">
+          {title}
+          {mandatory && <span className="text-red-500 ml-1">*</span>}
         </span>
-      </div>
+        <svg
+          className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${
+            isOpen ? "rotate-180" : ""
+          }`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
 
-      {/* Dropdown Content */}
+      {/* Dropdown Menu */}
       {isOpen && (
-        <div>
-          {/* Search Input */}
-          {/* {options.length > 5 && ( */}
+        <div
+          className="w-full mt-2 bg-white p-3"
+          style={{
+            maxHeight: "280px",
+            overflowY: "auto",
+            scrollbarWidth: "thin",
+            scrollbarColor: "#ccc transparent",
+          }}
+          ref={dropdownRef}
+          onScroll={handleScroll}
+        >
+          {/* Search Box */}
           <input
             type="text"
-            placeholder={
-              defaultUnit ? `Search in ${defaultUnit}...` : "Search..."
-            }
+            className="w-full mb-3 rounded-md px-3 py-2 text-sm border border-gray-300 focus:outline-none focus:border-blue-400"
+            placeholder={defaultUnit ? `Search in ${defaultUnit}...` : "Search..."}
             value={inputText}
             onChange={handleInputChange}
-            style={{
-              width: "100%",
-              padding: "8px 14px",
-              margin: "0 0 12px 0",
-              border: "1px solid #ccc",
-              borderRadius: "4px",
-              outline: "none",
-              backgroundColor: "#f5f5f5",
-            }}
           />
-          {/* // )} */}
 
-          {/* Options List */}
-          <div id="dropdown-content" className="custom-dropdown-content">
-            <div
-              className="custom-dropdown-options"
-              ref={dropdownRef}
-              onScroll={handleScroll}
-            >
-              {filteredOptions.length > 0 ? (
-                filteredOptions.map((option) => (
-                  <div
-                    key={option[varToDb[heading]]}
-                    className="custom-dropdown-option"
-                    onClick={(e) => e.stopPropagation()} // Prevent clicks on the option from closing the dropdown
-                    style={{
-                      display: "flex", // Use flexbox
-                      justifyContent: "space-between", // Align content to be spaced out
-                      alignItems: "center", // Vertically center the items
-                      padding: "8px 10px", // Add some padding around the option
-                      borderBottom: "1px solid #ccc", // Optional: to separate options with a thin line
-                    }}
-                  >
-                    <Form.Check
+          {/* Options */}
+          {filteredOptions.length > 0 ? (
+            filteredOptions.map((option, idx) => {
+              const valueKey =
+                heading &&
+                typeof option === "object" &&
+                option &&
+                varToDb[heading] &&
+                option[varToDb[heading]] != null
+                  ? option[varToDb[heading]]
+                  : typeof option === "string"
+                  ? option
+                  : (option && (option.value ?? option.label)) || String(idx);
+
+              const isChecked = Array.isArray(selectedValues)
+                ? selectedValues.includes(valueKey)
+                : false;
+
+              return (
+                <label
+                  key={`${valueKey}-${idx}`}
+                  className="flex justify-between items-center px-2 py-1 rounded-md cursor-pointer hover:bg-gray-100 transition"
+                >
+                  <div className="flex items-center">
+                    <input
                       type="checkbox"
-                      id={`checkbox-${option[varToDb[heading]]}`}
-                      label={option[varToDb[heading]]}
-                      checked={
-                        selectedOptions[heading]?.includes(
-                          option[varToDb[heading]]
-                        ) || false
-                      }
-                      onChange={(e) =>
-                        handleOptionChange(option[varToDb[heading]], e)
-                      }
-                      style={{ flexGrow: 1 }} // Allow label to take available space
+                      className="mr-2"
+                      checked={isChecked}
+                      onChange={(e) => handleOptionChange(valueKey, e)}
                     />
-
-                    {/* Count badge */}
-                    <span
-                      className="count-badge"
-                      style={{
-                        // background: "#007BFF",
-                        color: "rgb(87, 84, 84)",
-                        padding: "5px 12px",
-                        borderRadius: "15px",
-                        fontSize: "14px",
-                        fontWeight: "600",
-                        marginLeft: "10px", // Space between checkbox and badge
-                        whiteSpace: "nowrap", // Prevent badge text from wrapping
-                      }}
-                    >
-                      {option["occurrence_cnt"]}
-                    </span>
+                    <span>{valueKey}</span>
                   </div>
-                ))
-              ) : fetching ? (
-                <Loader />
-              ) : (
-                <div className="custom-dropdown-no-results">
-                  No options available
-                </div>
-              )}
-            </div>
-          </div>
+                  {/* // Requirement #1 - Dynamic Search Counts */}
+                  {/* // Key Functionality #2 - Search - DYNAMIC SEARCH COUNTS Code */}
+                  {option.count !== undefined && (
+                    <span className="text-xs bg-gray-100 text-gray-800 rounded-full px-2">
+                      {option.count}
+                    </span>
+                  )}
+                </label>
+              );
+            })
+          ) : fetching ? (
+            <Loader />
+          ) : advert && inputText.trim() && !options.includes(inputText.trim()) ? ( 
+            <div
+              className="text-gray-500 text-center p-2 cursor-pointer hover:bg-gray-100"
+              onClick={handleAddOption}
+            >
+              Add {inputText}
+            </div>  
+          ) : (
+            <div className="text-gray-500 text-center p-2">No options available</div>
+          )}
         </div>
       )}
     </div>
   );
 };
 
-// Prop Types Validation
 DropdownWithCheckBoxes.propTypes = {
-  heading: PropTypes.string.isRequired,
-  title: PropTypes.string.isRequired,
-  options: PropTypes.arrayOf(PropTypes.object).isRequired,
-  selectedOptions: PropTypes.object.isRequired,
-  setSelectedOptions: PropTypes.func.isRequired,
+  heading: PropTypes.string,
+  title: PropTypes.string,
+  options: PropTypes.array,
+  selected: PropTypes.array,
+  onChange: PropTypes.func,
+  selectedOptions: PropTypes.object,
+  setSelectedOptions: PropTypes.func,
   defaultUnit: PropTypes.string,
-  onOpen: PropTypes.func.isRequired,
-  fetching: PropTypes.bool.isRequired,
+  onOpen: PropTypes.func,
+  fetching: PropTypes.bool,
 };
 
 export default DropdownWithCheckBoxes;

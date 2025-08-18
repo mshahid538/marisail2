@@ -1,125 +1,203 @@
 import { Router } from "express";
 import db_connection from "../config/dbConfig.js";
-import { SERVICES } from "../Config/All_Services_Config.js";
+import { initialize_Service, handle_Error_Response, build_Joins, build_Where_Clause, build_Range_Facets } from "../utils/Common_Utils.js"
+const search_Router = Router();
 
-import {get_service_config_by_name,
-send_error_response,
-initialize_service_middleware,
-build_range_facets,
-build_joins
-} from "../utils/utils.js"
-const search_router = Router();
+// → Returns the service configuration & field mappings so the UI can build a search form.
 
-// ========================
-// ROUTES
-// ========================
-search_router.get("/:service_name/search", initialize_service_middleware, async (request, callback) => {
+search_Router.get("/:service_name/search-options", initialize_Service, (request, response) => {
+    const { service_config, service_mappings } = request;
+    response.json({ ok: true, data:{ service_config, service_mappings }});
+});
+
+// → Executes a search query on the main table (plus joins) using optional filters, sorted by primary key, and returns up to 50 results.
+// Key Functionality #1 — Search – MULTI‑SEARCH Code
+// Key Functionality #7 - FROM TO range handling
+
+search_Router.get("/:service_name/search", initialize_Service, async (request, response) => {
   try {
-    const { main_table, primary_key, Var_To_Table } = request.service_config;
-    const { selectedOptions = {}, page = 0, limit = 50 } = request.query || {};
-    const offset = page * limit;
+    const { service_config, service_mappings } = request;
 
-    // Build WHERE clause from selectedOptions
-    const whereClause = Object.keys(selectedOptions).length
-      ? `WHERE ${build_where(selectedOptions, Var_To_Table)}`
-      : "";
+    // Build WHERE clause from filters
+
+    const where_Sql = build_Where_Clause(request.query.filters || {}, service_mappings);
+    const query = `
+      SELECT \`${service_config.main_table}\`.*
+      FROM \`${service_config.main_table}\` 
+      ${build_Joins(service_config)}
+      ${where_Sql} 
+      ORDER BY \`${service_config.main_table}\`.\`${service_config.primary_key}\` DESC
+      LIMIT 50 OFFSET 0
+    `.trim().replace(/\s+/g, ' ');
+    console.log("Executing Query:", query);
+    const [results] = await db_connection.query(query);
+
+    // --- Count query  Key Functionality #2 - Search - DYNAMIC SEARCH COUNTS Code
+
+    const count_Query = `
+      SELECT COUNT(*) as totalCount FROM \`${service_config.main_table}\`  ${build_Joins(service_config)}   ${where_Sql}`.trim().replace(/\s+/g, ' ');
+    const [count_Rows] = await db_connection.query(count_Query);
+
+    // Send back results and total count
+
+    response.json({ok: true,totalCount: count_Rows[0].totalCount,data: results
+    });
+
+  } catch (error) {
+    handle_Error_Response(response, `Search failed: ${error.message}`);
+  }
+});
+
+
+// // Key Functionality #3 - Search - DETAILED RESULTS Code (Details Panels) → Fetches a single record’s details by ID (with joined tables if applicable).
+
+// search_Router.get("/:service_name/details/:id", initialize_Service, async (request, response) => {
+//   try {
+// const { service_config } = request;
+// const id = request.params.id;
+// const main = service_config.main_table;
+// const primary_Key = service_config.primary_key;
+// const select_List = [
+//   `\`${main}\`.*`,`\`${main}\`.\`${primary_Key}\` AS \`${main}__${primary_Key}\``,  ...(Array.isArray(service_config.join_tables)
+//     ? service_config.join_tables.map(t => `\`${t}\`.*`) : [])
+// ].join(", ");
+
+// const query = `
+//  SELECT ${select_List} FROM \`${main}\` ${build_Joins(service_config)} WHERE \`${main}\`.\`${primary_Key}\` = ? LIMIT 1
+// `;
+//     console.log("Details query:", query, "with id:", id);
+//     const [results] = await db_connection.query(query, [id]);
+//     if (results.length === 0) {
+//       return handle_Error_Response(response, 'Record not found', 404);
+//     }
+//         let row = results[0];
+//     const safe_Key = `${main}__${primary_Key}`;
+//     if ((row[primary_Key] === null || row[primary_Key] === undefined) && row[safe_Key] != null) {
+//       row[primary_Key] = row[safe_Key];
+//     }
+//     delete row[safe_Key];
+//     response.json({ ok: true, data: results[0] });
+//   } catch (error) {
+//     handle_Error_Response(response, `Details fetch failed: ${error.message}`);
+//   }
+  
+// });
+
+search_Router.get("/:service_name/details/:id", initialize_Service, async (request, response) => {
+  try {
+    const { service_config, service_mappings } = request;
+    const id = request.params.id;
+    const main = service_config.main_table;
+    const primary_Key = service_config.primary_key;
+
+    // Build select list: main table fields + alias for primary key + join tables
+    const select_List = [
+      `\`${main}\`.*`,
+      `\`${main}\`.\`${primary_Key}\` AS \`${main}__${primary_Key}\``,
+      ...(Array.isArray(service_config.join_tables) ? service_config.join_tables.map(t => `\`${t}\`.*`) : [])
+    ].join(", ");
 
     const query = `
-      SELECT ${main_table}.*
-      FROM ${main_table}
-      ${build_joins(request.service_config)}
-      ${whereClause}
-      ORDER BY ${main_table}.${primary_key} DESC
-      LIMIT ?
-      OFFSET ?
+      SELECT ${select_List}
+      FROM \`${main}\`
+      ${build_Joins(service_config)}
+      WHERE \`${main}\`.\`${primary_Key}\` = ?
+      LIMIT 1
     `;
+    console.log("Details query:", query, "with id:", id);
+    const [results] = await db_connection.query(query, [id]);
+    if (results.length === 0) {
+      return handle_Error_Response(response, 'Record not found', 404);
+    }
 
-    const [results] = await db_connection.query(query, [limit, offset]);
-    callback.json({ ok: true, res: results });
-  } catch (err) {
-    send_error_response(callback, `Search failed: ${err.message}`);
-  }
-});
+    const flat_Row = results[0];
+    const safe_Key = `${main}__${primary_Key}`;
 
-search_router.get("/:service_name/counts", initialize_service_middleware, async (request, callback) => {
-  try {
-    const { main_table, var_to_column } = request.service_config;
-    const counts = {};
+    // Restore PK if overwritten by join tables
+    if ((flat_Row[primary_Key] === null || flat_Row[primary_Key] === undefined) && flat_Row[safe_Key] != null) {
+      flat_Row[primary_Key] = flat_Row[safe_Key];
+    }
+    delete flat_Row[safe_Key];
 
-    await Promise.all(
-      Object.entries(request.query.filters || {}).map(async ([field, values]) => {
-        if (values && values.length > 0) {
-          const [result] = await db_connection.query(
-            `SELECT ${var_to_column[field]} AS value, COUNT(*) AS count
-             FROM ${main_table}
-             WHERE ${var_to_column[field]} IN (?)
-             GROUP BY value`,
-            [values]
-          );
-          counts[field] = result.reduce((acc, row) => {
-            acc[row.value] = row.count;
-            return acc;
-          }, {});
+    // Structure response grouped by tables using your config
+    const structured_Data = {};
+
+    (service_config.tables || []).forEach(table => {
+      const table_Name = table.table_Name;
+      structured_Data[table_Name] = {};
+
+      // Get columns as array whether originally object or array
+      const collumns = Array.isArray(table.columns) ? table.columns : Object.values(table.columns || {});
+
+      collumns.forEach(col => {
+        const collumn_Name = col.column_Name;
+        if (flat_Row.hasOwnProperty(collumn_Name)) {
+          structured_Data[table_Name][collumn_Name] = flat_Row[collumn_Name];
         }
-      })
-    );
+      });
+    });
 
-    callback.json({ ok: true, counts });
-  } catch (err) {
-    send_error_response(callback, `Counts failed: ${err.message}`);
+    return response.json({ ok: true, data: structured_Data });
+
+  } catch (error) {
+    handle_Error_Response(response, `Details fetch failed: ${error.message}`);
   }
 });
 
-search_router.get(
-  "/:service_name/facets/:field",
-  initialize_service_middleware,
-  async (request, callback) => {
-    try {
-      const { field } = request.params;
-      const { var_to_column, main_table } = request.service_config;
 
-      if (request.query.range) {
-        const [ranges] = await db_connection.query(
-          build_range_facets(var_to_column[field], parseInt(request.query.range))
-        );
-        callback.json({ ok: true, facets: ranges });
-      } else {
-        const [values] = await db_connection.query(
-          `SELECT DISTINCT ${var_to_column[field]} AS value
-         FROM ${main_table}
-         WHERE ${var_to_column[field]} IS NOT NULL
-         ORDER BY value`
-        );
-        callback.json({ ok: true, facets: values.map((val) => val.value) });
+// → Returns unique values (or numeric range buckets if ?range= provided) for a given field in the service’s mapping.
+
+search_Router.get("/:service_name/facets/:field", initialize_Service, async (request, response) => {
+  try {
+    const { field } = request.params;
+    const { service_mappings } = request;
+
+    let column_Name = service_mappings.var_To_Column[field];
+    let table_Name = service_mappings.var_To_Table[field];
+    if (!column_Name || !table_Name) {
+      for (const [key, cell] of Object.entries(service_mappings.var_To_Column)) {
+        if (cell.toLowerCase() === field.toLowerCase()) {
+          column_Name = cell;
+          table_Name = service_mappings.var_To_Table[key];
+          break;
+        }
       }
-    } catch (err) {
-      send_error_response(callback, `Facets failed: ${err.message}`);
     }
-  }
-);
 
-search_router.get(
-  "/:service_name/details/:id",
-  initialize_service_middleware,
-  async (request, callback) => {
-    try {
-      const { main_table, primary_key } = request.service_config;
-      const query = `
-      SELECT ${main_table}.*, ${request.service_config.join_tables
-        .map((tbl) => `${tbl}.*`)
-        .join(", ")}
-      FROM ${main_table}
-      ${build_joins(request.service_config)}
-      WHERE ${main_table}.${primary_key} = ?
+    if (!column_Name || !table_Name) {
+      return handle_Error_Response(response, `Field '${field}' not configured`, 404);
+    }
+    if (request.query.range) {
+      const query = build_Range_Facets(table_Name, column_Name, parseInt(request.query.range));
+      const [ranges] = await db_connection.query(query);
+      return response.json({ ok: true, facets: ranges });
+    }
+
+    // Query to get counts of each distinct value
+    
+    const facets_Query = `
+      SELECT \`${column_Name}\` AS value, COUNT(*) AS count
+      FROM \`${table_Name}\`
+      WHERE \`${column_Name}\` IS NOT NULL
+      GROUP BY \`${column_Name}\`
+      ORDER BY value ASC
     `;
-    const [results] = await db_connection.query(query, [request.params.id]);
-      if (results.length === 0) throw new Error("Record not found");
+    const [facets] = await db_connection.query(facets_Query);
 
-      callback.json({ ok: true, res: results });
-    } catch (err) {
-      send_error_response(callback, `Details failed: ${err.message}`);
-    }
+    // Query to get total count of records where column NOT NULL
+
+    const totalCountQuery = `
+      SELECT COUNT(*) AS totalCount
+      FROM \`${table_Name}\`
+      WHERE \`${column_Name}\` IS NOT NULL
+    `;
+    const [total_Rows] = await db_connection.query(totalCountQuery);
+    const total_Count = total_Rows[0]?.totalCount ?? 0;
+
+    return response.json({ ok: true,   total_Count,facets });
+  } catch (error) {
+    handle_Error_Response( response, `Facets failed for field '${request.params.field}': ${error.message}`  );
   }
-);
+});
 
-export default search_router;
+export default search_Router;

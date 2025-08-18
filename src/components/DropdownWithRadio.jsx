@@ -1,15 +1,14 @@
 import { useState } from "react";
-import { Form, Accordion } from "react-bootstrap";
 import PropTypes from "prop-types";
 
 const DropdownWithRadio = ({
   heading,
   title,
-  options,
+  options = [],
   selectedOption,
   setSelectedOption,
-  isMandatory,
-  openKey,
+  isMandatory = false,
+  openKey = null,
   setOpenKey,
 }) => {
   const [list] = useState(options);
@@ -35,59 +34,55 @@ const DropdownWithRadio = ({
   }
 
   return (
-    <Accordion
-      activeKey={openKey}
-      style={{ marginLeft: "-10px" }}
-      onSelect={(eventKey) => setOpenKey(eventKey)}
-    >
-      <Accordion.Item eventKey={heading}>
-        <Accordion.Header>
-          {title}
-          {isMandatory && <span className="text-danger">&nbsp;*</span>}
-        </Accordion.Header>
-        <Accordion.Body
-          style={{ maxHeight: 200, overflowY: "auto", maxWidth: 472 }}
-        >
-          <div>
-            {list.length > 0 ? (
-              list.map((item, index) => (
-                <div key={index}>
-                  <Form.Check
+    <div className="ml-[-10px]">
+      {/* Accordion header */}
+      <button
+        className="w-full text-left border-b py-2"
+        onClick={() => setOpenKey(openKey === heading ? null : heading)}
+      >
+        {title}
+        {isMandatory && <span className="text-red-500">&nbsp;*</span>}
+      </button>
+
+      {/* Accordion body */}
+      {openKey === heading && (
+        <div className="max-h-[200px] overflow-y-auto max-w-[472px]">
+          {list.length > 0 ? (
+            list.map((item, index) => (
+              <div key={`${item?.[0] ?? index}-${index}`}>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
                     type="radio"
                     name={`radio-options-${heading}`}
-                    label={`${item}`}
-                    checked={
-                      convertNonArrayOrObject(selectedOption) === item
-                    }
-                    onChange={() => handleOptionChange(item)}
+                    checked={convertNonArrayOrObject(selectedOption) === item[0]}
+                    onChange={() => handleOptionChange(item[0])}
                   />
-                </div>
-              ))
-            ) : (
-              <div className="custom-dropdown-no-results">
-                No options available
+                  <span>{item[0]}</span>
+                </label>
               </div>
-            )}
-          </div>
-        </Accordion.Body>
-      </Accordion.Item>
-    </Accordion>
+            ))
+          ) : (
+            <div className="text-gray-500">No options available</div>
+          )}
+        </div>
+      )}
+    </div>
   );
 };
 
 DropdownWithRadio.propTypes = {
   heading: PropTypes.string.isRequired,
   title: PropTypes.string.isRequired,
-  options: PropTypes.arrayOf(PropTypes.array).isRequired,
+  options: PropTypes.arrayOf(PropTypes.array),
   selectedOption: PropTypes.oneOfType([
-    PropTypes.string.isRequired,
-    PropTypes.number.isRequired,
-    PropTypes.object.isRequired,
+    PropTypes.string,
+    PropTypes.number,
+    PropTypes.object,
   ]),
   setSelectedOption: PropTypes.func.isRequired,
-  isMandatory: PropTypes.bool.isRequired,
-  openKey: PropTypes.string.isRequired,
-  setOpenKey: PropTypes.func.isRequired,
+  isMandatory: PropTypes.bool,
+  openKey: PropTypes.string, // allow null/undefined
+  setOpenKey: PropTypes.func,
 };
 
 export default DropdownWithRadio;

@@ -1,163 +1,162 @@
 import PropTypes from "prop-types";
-import { v4 as uuidv4 } from 'uuid';
+import { useState } from "react";
+import { v4 as uuidv4 } from "uuid";
+import { conversions, convertUnit } from "../utils/common_functions";
 
-const RangeInput = ({
+const RangeDropdown = ({
   title,
-  fromValue,
-  toValue,
-  setFromValue,
-  setToValue,
+  min,
+  max,
+  valueFrom,
+  valueTo,
+  onChange,
   radioOptions,
-  selectedRadio,
-  onRadioChange,
-  key2,
-  isOpen,
-  toggleAccordion,
+  mandatory,
 }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [selectedUnit, setSelectedUnit] = useState(() => {
+    const firstValue = radioOptions?.[0]?.value;
+    if (!firstValue) return "";
+    const lower = firstValue.toLowerCase();
+    return conversions[lower]?.defaultUnit || firstValue;
+  });
+
+  const effectiveFrom = valueFrom !== undefined ? valueFrom : "";
+  const effectiveTo = valueTo !== undefined ? valueTo : "";
+
   const handleFromChange = (e) => {
-    const value = e.target.value;
+    const value = e.target.value.replace(/[^0-9.]/g, "");
     if (!isNaN(value) || value === "") {
-      setFromValue(value);
+      onChange(value, effectiveTo);
     }
   };
 
   const handleToChange = (e) => {
-    const value = e.target.value;
+    const value = e.target.value.replace(/[^0-9.]/g, "");
     if (!isNaN(value) || value === "") {
-      setToValue(value);
+      onChange(effectiveFrom, value);
     }
   };
 
-  const handleRadioChangeInternal = (value) => {
-    onRadioChange(value);
+  const handleUnitChange = (unitValue) => {
+
+    const convertedFrom =
+      effectiveFrom !== ""
+        ? Math.max(0, convertUnit(Number(effectiveFrom), selectedUnit, unitValue))
+        : "";
+
+    const convertedTo =
+      effectiveTo !== ""
+        ? Math.max(0, convertUnit(Number(effectiveTo), selectedUnit, unitValue))
+        : "";
+
+    setSelectedUnit(unitValue);
+
+    if (typeof onChange === "function")
+      onChange(convertedFrom, convertedTo);
   };
 
   return (
-    <div className="custom-dropdown-container">
-      <div
-        className="custom-dropdown-header"
-        onClick={toggleAccordion}
+    <div
+      className="dropdown w-full"
+      onMouseEnter={() => setIsOpen(true)}
+      onMouseLeave={() => setIsOpen(false)}
+    >
+      {/* Toggle */}
+      <button
+        type="button"
         aria-expanded={isOpen}
-        aria-controls="dropdown-content"
-        style={{ marginBottom: "10px" }}
+        className="w-full flex justify-between items-center py-2 text-[15px] text-gray-900 font-medium transition"
       >
-        <span>{title}</span>
-        <span className={`dropdown-icon ${isOpen ? "open" : ""}`}>
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 10 10"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="M1 3 L5 7 L9 3"
-              fill="none"
-              stroke="black"
-              strokeWidth="1.5"
-              transform={isOpen ? "rotate(180 5 5)" : ""}
-            />
-          </svg>
+        <span className="truncate">
+          {title}
+          {mandatory && <span className="text-red-500 ml-1">*</span>}
         </span>
-      </div>
+        <svg
+          className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${
+            isOpen ? "rotate-180" : ""
+          }`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M19 9l-7 7-7-7"
+          />
+        </svg>
+      </button>
+
+      {/* Dropdown Content */}
       {isOpen && (
-        <div>
-          <input
-            type="number"
-            value={fromValue}
-            onChange={handleFromChange}
-            placeholder="From"
-            style={{
-              width: "65px",
-              marginRight: "10px",
-              padding: "8px 0px 8px 14px",
-              margin: "0px 0 12px 0",
-              display: "inline-block",
-              border: "1px solid #fff",
-              borderRadius: "4px",
-              outline: "none",
-              backgroundColor: "#f5f5f5",
-            }}
-          />
-          <span style={{ marginRight: 8, marginLeft: 8 }}>-</span>
-          <input
-            style={{
-              width: "65px",
-              padding: "8px 0px 8px 14px",
-              margin: "0px 0 12px 0",
-              display: "inline-block",
-              border: "1px solid #fff",
-              borderRadius: "4px",
-              outline: "none",
-              backgroundColor: "#f5f5f5",
-            }}
-            type="number"
-            value={toValue}
-            onChange={handleToChange}
-            placeholder="To"
-          />
-          {radioOptions.length > 0 && (
-            <div
-              className="btn-group"
-              role="group"
-              aria-label="Basic radio toggle button group"
-              style={{
-                border: "1px solid #ccc",
-                borderRadius: "50px",
-                justifyContent: "space-around",
-                marginLeft: 10,
-              }}
-            >
-              {radioOptions.map((option) => (
-                <div key={uuidv4()}>
-                  <input
-                    data-attr={key2}
-                    type="radio"
-                    className="btn-check"
-                    name={`btnradio-${key2}-${option.label}-${option.value}`}
-                    id={`btnradio-${key2}-${option.label}-${option.value}`}
-                    value={option.value}
-                    onChange={(e) => handleRadioChangeInternal(e.target.value)}
-                    checked={selectedRadio === option.value}
-                    style={{ transform: "scale(0.8)" }}
-                  />
+        <div className="w-full mt-2 bg-white p-3">
+          <div className="flex items-center gap-2">
+            {/* From Input */}
+            <input
+              type="text"
+              inputMode="numeric"
+              value={effectiveFrom}
+              onChange={handleFromChange}
+              placeholder="From"
+              className="w-[60px] px-2 py-1 border border-gray-300 rounded text-center focus:outline-none focus:border-blue-400"
+            />
+            <span className="text-gray-300">–</span>
+            {/* To Input */}
+            <input
+              type="text"
+              inputMode="numeric"
+              value={effectiveTo}
+              onChange={handleToChange}
+              placeholder="To"
+              className="w-[60px] px-2 py-1 border border-gray-300 rounded text-center focus:outline-none focus:border-blue-400"
+            />
+
+            {/* Radio Options Inline */}
+            {Array.isArray(radioOptions) && radioOptions.length > 0 && (
+              <div className="flex border border-gray-300 rounded-full overflow-hidden ml-2">
+                {radioOptions.map((option) => (
                   <label
-                    className="btn btn-outline-primary"
-                    htmlFor={`btnradio-${key2}-${option.label}-${option.value}`}
-                    style={{
-                      fontSize: "12px",
-                      padding: "4px 6px",
-                      borderRadius: "10px",
-                    }}
+                    key={uuidv4()}
+                    className={`px-3 py-1 text-sm cursor-pointer transition ${
+                      selectedUnit === option.value.toLowerCase()
+                        ? "bg-blue-500 text-white"
+                        : "bg-white text-gray-700 hover:bg-gray-100"
+                    }`}
                   >
+                    <input
+                      type="radio"
+                      value={option.value.toLowerCase()}
+                      checked={selectedUnit === option.value.toLowerCase()}
+                      onChange={() => handleUnitChange(option.value.toLowerCase())}
+                      className="hidden"
+                    />
                     {option.label}
                   </label>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 };
 
-RangeInput.propTypes = {
-  fromValue: PropTypes.string.isRequired,
-  toValue: PropTypes.string.isRequired,
-  setFromValue: PropTypes.func.isRequired,
-  setToValue: PropTypes.func.isRequired,
-  title: PropTypes.string.isRequired,
-  selectedRadio: PropTypes.string,
-  onRadioChange: PropTypes.func.isRequired,
+RangeDropdown.propTypes = {
+  title: PropTypes.string,
+  min: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  max: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  valueFrom: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  valueTo: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  onChange: PropTypes.func,
   radioOptions: PropTypes.arrayOf(
     PropTypes.shape({
       value: PropTypes.string.isRequired,
       label: PropTypes.string.isRequired,
     })
   ),
-  key2: PropTypes.string.isRequired,
-  isOpen: PropTypes.bool.isRequired,
-  toggleAccordion: PropTypes.func.isRequired,
 };
 
-export default RangeInput;
+export default RangeDropdown;
