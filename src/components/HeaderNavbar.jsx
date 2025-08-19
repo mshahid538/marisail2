@@ -55,6 +55,7 @@ const menuItems = [
       { to: "/view-trailer", label: "My Trailers" },
       { to: "/view-berth", label: "My Berths" },
       { to: "/view-transport", label: "My Transport" },
+      { to: "/become-sponsor", label: "Become Sponsor" },
     ],
   },
 ];

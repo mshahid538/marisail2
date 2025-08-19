@@ -32,3 +32,6 @@ dist-ssr
 package-lock.json
 node-api/.env.example
 node-api/.env.example
+config.bat
+temp_auto_push.bat
+temp_interactive_push.bat
